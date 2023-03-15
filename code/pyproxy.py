@@ -76,15 +76,19 @@ def tcp_proxy(src, dst):
     LOGGER.debug('Dst: {}'.format(dst))
     
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(ip_to_tuple(src))
     s.listen(1)
 
+    count = 0
+    eof_count = 3
     while 1:
-        tcp_proxy_one_conn(s, dst)
+        tcp_proxy_one_conn(s, dst, count, eof_count)
+        count += 1
 # end-of-function tcp_proxy
 
 
-def tcp_proxy_one_conn(s, dst):
+def tcp_proxy_one_conn(s, dst, count, eof_count):
     s_src, _ = s.accept()
 
     s_dst = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -96,6 +100,7 @@ def tcp_proxy_one_conn(s, dst):
     ]
 
     restart = False
+    byte_count_dst = 0
     while True:
         s_read, _, _ = select.select(sockets, [], [])
         source = "SRC" if s_read == s_src else "DST"
@@ -114,13 +119,16 @@ def tcp_proxy_one_conn(s, dst):
             elif s == s_dst:
                 d = REMOTE_DATA_HANDLER(data)
                 LOGGER.debug(f'{source} received {len(d)} bytes')
-                if len(d) == 0:
+                if len(d) == 0 or (count % eof_count) == 0:
                     restart = True
                     break
                 s_src.sendall(d)
-            time.sleep(0.1)
+            # time.sleep(0.1)
         if restart:
             break
+    for sock in sockets:
+        sock.shutdown(socket.SHUT_RDWR)
+        sock.close()
 
 
 def ip_to_tuple(ip):
