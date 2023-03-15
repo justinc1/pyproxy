@@ -15,6 +15,7 @@ import signal
 import logging
 import select
 import socket
+import time
 
 
 FORMAT = '%(asctime)-15s %(levelname)-10s %(message)s'
@@ -74,33 +75,52 @@ def tcp_proxy(src, dst):
     LOGGER.debug('Src: {}'.format(src))
     LOGGER.debug('Dst: {}'.format(dst))
     
-    sockets = []
-    
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind(ip_to_tuple(src))
     s.listen(1)
 
+    while 1:
+        tcp_proxy_one_conn(s, dst)
+# end-of-function tcp_proxy
+
+
+def tcp_proxy_one_conn(s, dst):
     s_src, _ = s.accept()
 
     s_dst = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s_dst.connect(ip_to_tuple(dst)) 
-    
-    sockets.append(s_src)
-    sockets.append(s_dst)
-    
+
+    sockets = [
+        s_src,
+        s_dst,
+    ]
+
+    restart = False
     while True:
         s_read, _, _ = select.select(sockets, [], [])
-        
+        source = "SRC" if s_read == s_src else "DST"
+        LOGGER.debug('select from {}'.format(source))
+
         for s in s_read:
             data = s.recv(BUFFER_SIZE)
         
             if s == s_src:
                 d = LOCAL_DATA_HANDLER(data)
+                LOGGER.debug(f'{source} received {len(d)} bytes')
+                if len(d) == 0:
+                    restart = True
+                    break
                 s_dst.sendall(d)
             elif s == s_dst:
                 d = REMOTE_DATA_HANDLER(data)
+                LOGGER.debug(f'{source} received {len(d)} bytes')
+                if len(d) == 0:
+                    restart = True
+                    break
                 s_src.sendall(d)
-# end-of-function tcp_proxy    
+            time.sleep(0.1)
+        if restart:
+            break
 
 
 def ip_to_tuple(ip):
