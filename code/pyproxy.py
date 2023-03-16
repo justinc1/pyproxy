@@ -96,7 +96,16 @@ def tcp_proxy_one_conn(s, dst, connection_count):
     LOGGER.info(f"New connection from {s_src.getpeername()}")
 
     s_dst = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s_dst.connect(ip_to_tuple(dst)) 
+    try:
+        s_dst.connect(ip_to_tuple(dst))
+    except ConnectionRefusedError:
+        # we need to retry.
+        # Alternative - forward ConnectionRefusedError to our client,
+        # by not listening on src if dest is not available.
+        # But how to detect in realtime dest is not available?
+        LOGGER.warning(f"ConnectionRefusedError for {dst}, ignore and retry")
+        time.sleep(1)
+        pass
 
     sockets = [
         s_src,
@@ -124,7 +133,12 @@ def tcp_proxy_one_conn(s, dst, connection_count):
                 if len(d) == 0:
                     restart = True
                     break
-                s_dst.sendall(d)
+                try:
+                    s_dst.sendall(d)
+                except BrokenPipeError:
+                    LOGGER.warning(f"BrokenPipeError for {s_dst}, ignore and restart")
+                    restart = True
+                    break
             elif s == s_dst:
                 d = REMOTE_DATA_HANDLER(data)
                 # LOGGER.debug(f'{source} received {len(d)} bytes')
@@ -141,7 +155,12 @@ def tcp_proxy_one_conn(s, dst, connection_count):
             break
     for sock in sockets:
         LOGGER.info(f"Closing connection {sock}")
-        sock.shutdown(socket.SHUT_RDWR)
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            # after BrokenPipeError we want to ignore
+            # "OSError: [Errno 107] Transport endpoint is not connected"
+            pass
         sock.close()
 
 
@@ -149,7 +168,7 @@ def inject_ssl_eof_error(connection_count):
     # We want to let 2 connections pass,
     # 3rd - SSL EOF error,
     # then pass
-    if connection_count == 2:
+    if connection_count in [2]:
         return True
     return False
 
