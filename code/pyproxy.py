@@ -80,16 +80,16 @@ def tcp_proxy(src, dst):
     s.bind(ip_to_tuple(src))
     s.listen(1)
 
-    count = 0
-    eof_count = 3
+    connection_count = 0
     while 1:
-        tcp_proxy_one_conn(s, dst, count, eof_count)
-        count += 1
+        tcp_proxy_one_conn(s, dst, connection_count)
+        connection_count += 1
 # end-of-function tcp_proxy
 
 
-def tcp_proxy_one_conn(s, dst, count, eof_count):
+def tcp_proxy_one_conn(s, dst, connection_count):
     s_src, _ = s.accept()
+    LOGGER.info(f"New connection from {s_src.getpeername()}")
 
     s_dst = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s_dst.connect(ip_to_tuple(dst)) 
@@ -104,22 +104,26 @@ def tcp_proxy_one_conn(s, dst, count, eof_count):
     while True:
         s_read, _, _ = select.select(sockets, [], [])
         source = "SRC" if s_read == s_src else "DST"
-        LOGGER.debug('select from {}'.format(source))
+        # LOGGER.debug('select from {}'.format(source))
 
         for s in s_read:
             data = s.recv(BUFFER_SIZE)
         
             if s == s_src:
                 d = LOCAL_DATA_HANDLER(data)
-                LOGGER.debug(f'{source} received {len(d)} bytes')
+                # LOGGER.debug(f'{source} received {len(d)} bytes')
                 if len(d) == 0:
                     restart = True
                     break
                 s_dst.sendall(d)
             elif s == s_dst:
                 d = REMOTE_DATA_HANDLER(data)
-                LOGGER.debug(f'{source} received {len(d)} bytes')
-                if len(d) == 0 or (count % eof_count) == 0:
+                # LOGGER.debug(f'{source} received {len(d)} bytes')
+                if len(d) == 0:
+                    restart = True
+                    break
+                if inject_ssl_eof_error(connection_count):
+                    LOGGER.info(f"Injecting SSL EOF to connection {s_src.getpeername()}")
                     restart = True
                     break
                 s_src.sendall(d)
@@ -127,8 +131,18 @@ def tcp_proxy_one_conn(s, dst, count, eof_count):
         if restart:
             break
     for sock in sockets:
+        LOGGER.info(f"Closing connection {sock}")
         sock.shutdown(socket.SHUT_RDWR)
         sock.close()
+
+
+def inject_ssl_eof_error(connection_count):
+    # We want to let 2 connections pass,
+    # 3rd - SSL EOF error,
+    # then pass
+    if connection_count == 2:
+        return True
+    return False
 
 
 def ip_to_tuple(ip):
