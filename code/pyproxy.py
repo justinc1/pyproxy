@@ -8,6 +8,10 @@ __version__     = '0.1'
 
 """
 TCP/UDP proxy.
+
+Modified by @justinc1, to reproduce "EOF occurred in violation of protocol (_ssl.c:997)".
+For https://github.com/ScaleComputing/HyperCoreAnsibleCollection,
+module certificate.py.
 """
 
 import argparse
