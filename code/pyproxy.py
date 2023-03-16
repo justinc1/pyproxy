@@ -107,8 +107,13 @@ def tcp_proxy_one_conn(s, dst, connection_count):
         # LOGGER.debug('select from {}'.format(source))
 
         for s in s_read:
-            data = s.recv(BUFFER_SIZE)
-        
+            try:
+                data = s.recv(BUFFER_SIZE)
+            except ConnectionResetError:
+                LOGGER.info(f'ConnectionResetError on socket {s}, close and restart')
+                restart = True
+                break
+
             if s == s_src:
                 d = LOCAL_DATA_HANDLER(data)
                 # LOGGER.debug(f'{source} received {len(d)} bytes')
